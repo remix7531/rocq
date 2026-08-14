@@ -1,0 +1,20 @@
+File "./output/notation_onlyprinting_level.v", line 12, characters 0-153:
+Warning: Notation "_ == _" is already defined at level 70 with arguments
+constr at next level, constr at next level
+while this "only printing" declaration is at level 17 with arguments constr
+at level 17, constr at level 16. Only a printing rule is declared; the
+parsing rule keeps its level. [notation-incompatible-level,parsing,default]
+File "./output/notation_onlyprinting_level.v", line 15, characters 0-152:
+Warning: Notation "_ != _" is already defined at level 70 with arguments
+constr at next level, constr at next level
+while this "only printing" declaration is at level 17 with arguments constr
+at level 17, constr at level 16. Only a printing rule is declared; the
+parsing rule keeps its level. [notation-incompatible-level,parsing,default]
+0 == 1
+     : bool
+0 == 1 + 1
+     : bool
+true == false
+     : bool
+true == false != (true == false)
+     : bool
