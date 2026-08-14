@@ -832,6 +832,23 @@ let error_parsing_incompatible_level ntn ntn' oldprec oldtyps prec typs =
     spc() ++ str "while it is now required to be" ++ spc() ++
     pr_level ntn prec typs ++ str ".")
 
+(* An "only printing" notation adds no parsing rule, so the level it is
+   declared at does not have to agree with the level attached to the notation
+   key for parsing purposes; it is only used to decide how to parenthesize when
+   printing (see [Ppextend.notation_printing_level]).  We still report the
+   discrepancy, because the level recorded for the key (which is the one of the
+   parsing rule) is what [Constrextern] uses to decide entry coercions, so the
+   two levels are not completely independent yet. *)
+let warn_onlyprinting_incompatible_level =
+  CWarnings.create ~name:"notation-incompatible-level"
+    ~category:CWarnings.CoreCategories.parsing
+    (fun (ntn,oldprec,oldtyps,prec,typs) ->
+      str "Notation " ++ pr_notation ntn ++ str " is already defined" ++ spc() ++
+      pr_level ntn oldprec oldtyps ++
+      spc() ++ str "while this \"only printing\" declaration is" ++ spc() ++
+      pr_level ntn prec typs ++ str "." ++ spc() ++
+      strbrk "Only a printing rule is declared; the parsing rule keeps its level.")
+
 let warn_incompatible_format =
   CWarnings.create ~name:"notation-incompatible-format" ~category:CWarnings.CoreCategories.parsing
     (fun (specific,ntn) ->
@@ -927,6 +944,10 @@ let check_prefix_incompatible_level ntn prec nottyps =
 
 let cache_one_syntax_extension (ntn,synext) =
   let prec = synext.synext_level in
+  (* A declaration contributes a parsing rule exactly when it is not "only
+     printing" (see [make_parsing_rules]), which is what [synext_notgram = None]
+     records. *)
+  let onlyprinting = synext.synext_notgram = None in
   (* Check and ensure that the level and the precomputed parsing rule is declared *)
   let oldparsing =
     try
@@ -937,15 +958,33 @@ let cache_one_syntax_extension (ntn,synext) =
         with Not_found -> None
       in
       let oldtyps = Notgram_ops.non_terminals_of_notation ntn in
-      if not (level_eq prec oldprec && List.for_all2 Extend.constr_entry_key_eq synext.synext_nottyps oldtyps) &&
-         (oldparsing <> None || synext.synext_notgram = None) then
-        error_incompatible_level ntn oldprec oldtyps prec synext.synext_nottyps;
+      if not (level_eq prec oldprec && List.for_all2 Extend.constr_entry_key_eq synext.synext_nottyps oldtyps) then begin
+        if onlyprinting then
+          (* There is a single grammar rule per notation key, hence a single
+             level; but an "only printing" notation adds no grammar rule, so
+             requiring its level to be the one of the key is spurious.  This
+             used to be an error, which made e.g. VST's "only printing"
+             notation for "_ != _" (C level 17) and ssreflect's parsing
+             notation for "_ != _" (level 70) mutually exclusive, forcing an
+             import order on their users; see rocq#12465, rocq#12589 and
+             rocq#6078. *)
+          warn_onlyprinting_incompatible_level (ntn,oldprec,oldtyps,prec,synext.synext_nottyps)
+        else if oldparsing <> None then
+          (* Two parsing rules for the same key: the strict check remains. *)
+          error_incompatible_level ntn oldprec oldtyps prec synext.synext_nottyps
+      end;
       oldparsing
     with Not_found ->
       check_prefix_incompatible_level ntn prec synext.synext_nottyps;
       (* Declare the level and the precomputed parsing rule *)
       let () = Notation.declare_notation_level ntn prec in
       let () = Notgram_ops.declare_notation_non_terminals ntn synext.synext_nottyps in
+      (* The prefix table is used to give default levels to, and to check
+         factorization of, the *parsing* rules of later notations sharing a
+         prefix.  An "only printing" notation has no parsing rule, so it must
+         not be registered there: otherwise its levels leak into the grammar of
+         a later parsing notation with the same prefix. *)
+      let () = if not onlyprinting then Notgram_ops.declare_notation_prefixes ntn in
       let () = Option.iter (Notgram_ops.declare_notation_grammar ntn) synext.synext_notgram in
       None in
   (* Declare the parsing rule *)
