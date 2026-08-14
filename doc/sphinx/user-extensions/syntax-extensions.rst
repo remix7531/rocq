@@ -383,6 +383,22 @@ at the time of use of the notation.
    ``only printing`` can have multiple associated interpretations,
    even in the same scope.
 
+   Since an ``only printing`` notation adds no parsing rule, it may be
+   declared at a level, and with argument levels, different from the ones
+   of an already existing rule for the same notation string. The level of
+   the ``only printing`` notation is then used to decide how to
+   parenthesize when printing with it, while parsing is left untouched.
+
+.. warn:: Notation "a b" is already defined at level x while this "only printing" declaration is at level y. Only a printing rule is declared; the parsing rule keeps its level.
+   :name: notation-incompatible-level
+
+   The notation string already has a rule at a different level. This is
+   accepted, as the ``only printing`` declaration adds no parsing rule,
+   but the two levels are not fully independent: the level recorded for
+   the notation string is the one used to decide whether a
+   :ref:`coercion between entries <custom-entries>` is needed when
+   printing.
+
 .. note::
 
    When several notations can be used to print a given term, the
