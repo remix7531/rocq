@@ -1103,6 +1103,7 @@ type context_object =
   | Variable of Id.t (* A section variable or a Let definition *)
   | Axiom of axiom * (GlobRef.t * Constr.rel_context * types) list
   | Opaque of Constant.t     (* An opaque constant. *)
+  | UnreachableOpaque of Constant.t (* An opaque constant whose body could not be accessed. *)
   | Transparent of Constant.t
 
 (* Defines a set of [assumption] *)
@@ -1140,6 +1141,9 @@ struct
     | Opaque k1 , Opaque k2 -> Constant.UserOrd.compare k1 k2
     | Opaque _ , _ -> -1
     | _ , Opaque _ -> 1
+    | UnreachableOpaque k1 , UnreachableOpaque k2 -> Constant.UserOrd.compare k1 k2
+    | UnreachableOpaque _ , _ -> -1
+    | _ , UnreachableOpaque _ -> 1
     | Transparent k1 , Transparent k2 -> Constant.UserOrd.compare k1 k2
 end
 
@@ -1194,14 +1198,14 @@ let pr_assumptionset ?(flags=current_combined()) env sigma s =
           hov 2 (safe_pr_inductive env mind ++ spc () ++ strbrk"relies on definitional UIP.")
     in
     let fold t typ accu =
-      let (v, a, o, tr) = accu in
+      let (v, a, o, u, tr) = accu in
       match t with
       | Variable id ->
         let var = pr_id id ++ spc() ++ str ": " ++ pr_ltype_env ~flags env sigma typ in
-        (var :: v, a, o, tr)
+        (var :: v, a, o, u, tr)
       | Axiom (axiom, []) ->
         let ax = pr_axiom env axiom typ in
-        (v, ax :: a, o, tr)
+        (v, ax :: a, o, u, tr)
       | Axiom (axiom,l) ->
         let ax = pr_axiom env axiom typ ++
           spc() ++
@@ -1215,16 +1219,19 @@ let pr_assumptionset ?(flags=current_combined()) env sigma s =
             str "used in " ++ Id.print lab ++
             str " to prove" ++ fnl() ++ safe_pr_ltype_relctx (ctx,ty))
           l in
-        (v, ax :: a, o, tr)
+        (v, ax :: a, o, u, tr)
       | Opaque kn ->
         let opq = safe_pr_constant env kn ++ safe_pr_ltype env sigma typ in
-        (v, a, opq :: o, tr)
+        (v, a, opq :: o, u, tr)
+      | UnreachableOpaque kn ->
+        let unr = hov 2 (safe_pr_constant env kn ++ safe_pr_ltype env sigma typ) in
+        (v, a, o, unr :: u, tr)
       | Transparent kn ->
         let tran = safe_pr_constant env kn ++ safe_pr_ltype env sigma typ in
-        (v, a, o, tran :: tr)
+        (v, a, o, u, tran :: tr)
     in
-    let (vars, axioms, opaque, trans) =
-      ContextObjectMap.fold fold s ([], [], [], [])
+    let (vars, axioms, opaque, unreachable, trans) =
+      ContextObjectMap.fold fold s ([], [], [], [], [])
     in
     let theory =
       if is_impredicative_set env then
@@ -1253,6 +1260,7 @@ let pr_assumptionset ?(flags=current_combined()) env sigma s =
       opt_list (str "Transparent constants:") trans;
       opt_list (str "Section Variables:") vars;
       opt_list (str "Axioms:") axioms;
+      opt_list (str "Opaque proofs that could not be accessed:") unreachable;
       opt_list (str "Opaque constants:") opaque;
       opt_list (str "Theory:") theory;
     ] in
