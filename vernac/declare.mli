@@ -154,6 +154,14 @@ module OblState : sig
   type t
   val empty : t
 
+  (** [is_empty pm] is [true] when [pm] holds no Program declaration
+      still to be completed. These declarations are kept behind
+      {!CEphemeron.key}s, which lose their value when marshalled: the
+      obligations of a non-empty state that went through [Marshal]
+      cannot be read back, accessing them raises
+      {!CEphemeron.InvalidKey}. *)
+  val is_empty : t -> bool
+
   module View : sig
     module Obl : sig
       type t = private
@@ -292,6 +300,16 @@ module Proof : sig
       terms *)
   val compact : t -> t
 
+  (** [is_portable pf] is [true] when [pf] has no declaration hook and
+      a regular proof ending. Hooks and non-regular proof endings are
+      the parts of [pf] kept behind {!CEphemeron.key}s, which lose
+      their value when marshalled: saving a copy of a non-portable
+      proof that went through [Marshal] raises an anomaly. Nothing
+      else is checked: the other keys reachable from [pf], such as
+      the kernel's VM code and side-effect certificates, are
+      recomputed when lost. *)
+  val is_portable : t -> bool
+
   (** Update the proof's universe information typically after a
       side-effecting command (e.g. a sublemma definition) has been run
       inside it. *)
@@ -331,6 +349,12 @@ module Proof : sig
 
   val close_proof : ?warn_incomplete:bool -> opaque:Vernacexpr.opacity_flag -> keep_body_ucst_separate:bool -> t -> proof_object
   val close_future_proof : feedback_id:Stateid.t -> t -> closed_proof_output Future.computation -> proof_object
+
+  (** [drop_hooks pf] drops the declaration hook and the proof ending
+      of [pf], so that saving it declares plain constants only. This
+      is correct only when those declarations are thrown away, as in a
+      proof worker re-checking a proof it received by marshalling. *)
+  val drop_hooks : proof_object -> proof_object
 
   (** Special cases for delayed proofs, in this case we must provide the
       proof information so the proof won't be forced. *)

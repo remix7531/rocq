@@ -1485,6 +1485,10 @@ end = struct (* {{{ *)
           State.unfreeze st;
           let pobject =
             PG_compat.close_future_proof ~feedback_id:stop (Future.from_val proof) in
+          (* The lemma reached this worker by marshalling, so its hook
+             and proof ending are lost. The declarations made here are
+             discarded anyway: the master runs them on its own copy. *)
+          let pobject = Declare.Proof.drop_hooks pobject in
 
           let st = Vernacstate.freeze_full_state () in
           let opaque = Opaque in

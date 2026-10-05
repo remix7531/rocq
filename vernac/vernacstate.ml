@@ -161,6 +161,11 @@ let unfreeze_full_state st =
       Interp.unfreeze_interp_state st.interp)
     ()
 
+let is_portable { interp = { lemmas; program } } =
+  let lemmas = Option.cata NeList.to_list [] lemmas in
+  List.for_all Declare.Proof.is_portable lemmas
+  && List.for_all Declare.OblState.is_empty (NeList.to_list program)
+
 (* Compatibility module *)
 module Declare_ = struct
 

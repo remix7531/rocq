@@ -39,7 +39,14 @@ module Hook = struct
   let make_g hook = CEphemeron.create hook
   let make (hook : S.t -> unit) : t = CEphemeron.create (fun x () -> hook x)
 
-  let hcall hook x s = CEphemeron.default hook (fun _ x -> x) x s
+  let hcall hook x s =
+    let hook =
+      try CEphemeron.get hook
+      with CEphemeron.InvalidKey ->
+        CErrors.anomaly
+          Pp.(str "The declaration hook was lost because the proof state was marshalled.")
+    in
+    hook x s
 
   let call_g ?hook x s = Option.cata (fun hook -> hcall hook x s) s hook
   let call ?hook x = Option.iter (fun hook -> hcall hook x ()) hook
@@ -1413,6 +1420,7 @@ module State = struct
 
 
   let empty = ProgMap.empty
+  let is_empty = ProgMap.is_empty
 
   let pending pm =
     ProgMap.filter
@@ -1764,8 +1772,9 @@ module Proof_info = struct
     { cinfo : unit CInfo.t list
     (** cinfo contains each individual constant info in a mutual decl *)
     ; info : Info.t
-    ; proof_ending : Proof_ending.t CEphemeron.key
-    (* This could be improved and the CEphemeron removed *)
+    ; proof_ending : Proof_ending.t CEphemeron.key option
+    (* None = Regular, so that a regular proof survives marshalling.
+       This could be improved and the CEphemeron removed *)
     ; possible_guard : (Pretyping.possible_guard * Evd.erelevance list) option (* None = not recursive *)
     (** thms and compute guard are specific only to
        start_definition + regular terminator, so we
@@ -1773,11 +1782,24 @@ module Proof_info = struct
     }
 
   let make ~cinfo ~info ?possible_guard ?(proof_ending=Proof_ending.Regular) () =
+    let proof_ending = match proof_ending with
+      | Proof_ending.Regular -> None
+      | proof_ending -> Some (CEphemeron.create proof_ending)
+    in
     { cinfo
     ; info
     ; possible_guard
-    ; proof_ending = CEphemeron.create proof_ending
+    ; proof_ending
     }
+
+  let get_proof_ending pinfo =
+    match pinfo.proof_ending with
+    | None -> Proof_ending.Regular
+    | Some proof_ending ->
+      try CEphemeron.get proof_ending
+      with CEphemeron.InvalidKey ->
+        CErrors.anomaly
+          Pp.(str "The proof ending was lost because the proof state was marshalled.")
 
 end
 
@@ -1829,6 +1851,9 @@ let map_fold_endline ~f ps =
   ps, ret
 
 let compact pf = map ~f:Proof.compact pf
+
+let is_portable { pinfo = { Proof_info.info; proof_ending } } =
+  Option.is_empty info.Info.hook && Option.is_empty proof_ending
 
 (* Sets the tactic to be used when a tactic line is closed with [...] *)
 let set_endline_tactic tac ps =
@@ -2207,6 +2232,12 @@ let close_future_proof ~feedback_id proof (fpl : closed_proof_output Future.comp
   ; pinfo = proof.pinfo
   }
 
+let drop_hooks { Proof_object.proof_object; pinfo } =
+  let info = { pinfo.Proof_info.info with Info.hook = None } in
+  { Proof_object.proof_object
+  ; pinfo = { pinfo with Proof_info.info; proof_ending = None }
+  }
+
 let update_sigma_univs ugraph p =
   map ~f:(Proof.update_sigma_univs ugraph) p
 
@@ -2271,7 +2302,7 @@ let finish_admitted ~pm ~pinfo ~sec_vars typs =
   warn_admitted_proof ();
   (* If the constant was an obligation we need to update the program map *)
   let { Proof_info.info; cinfo } = pinfo in
-  match CEphemeron.default pinfo.Proof_info.proof_ending Proof_ending.Regular with
+  match Proof_info.get_proof_ending pinfo with
   | Proof_ending.End_obligation oinfo ->
     let declare_fun ~uctx ~mono_uctx_extra typ =
       List.hd (declare_possibly_mutual_parameters ~info ~cinfo ~sec_vars ~mono_uctx_extra [typ, uctx]) in
@@ -2333,7 +2364,7 @@ let check_single_entry entries label =
 let finish_proof ~pm proof_obj proof_info =
   let open Proof_ending in
   let { Proof_info.info; cinfo; possible_guard } = proof_info in
-  match CEphemeron.default proof_info.Proof_info.proof_ending Regular with
+  match Proof_info.get_proof_ending proof_info with
   | Regular ->
     (* Unless this is a block of mutual fixpoint, we assume the
        statements, if more than one, to form a telescope, as in Derive *)
@@ -2360,7 +2391,7 @@ let process_idopt_for_save ~idopt info =
   | Some { CAst.v = save_name } ->
     (* Save foo was used; we override the info in the first theorem *)
     let cinfo =
-      match info.Proof_info.cinfo, CEphemeron.default info.Proof_info.proof_ending Proof_ending.Regular with
+      match info.Proof_info.cinfo, Proof_info.get_proof_ending info with
       | [ { CInfo.name; _} as decl ], Proof_ending.Regular ->
         [ { decl with CInfo.name = save_name } ]
       | _ ->
@@ -2375,7 +2406,7 @@ let save ~pm ~proof ~opaque ~idopt =
 
 let save_regular ~(proof : t) ~opaque ~idopt =
   let open Proof_ending in
-  match CEphemeron.default proof.pinfo.Proof_info.proof_ending Regular with
+  match Proof_info.get_proof_ending proof.pinfo with
   | Regular ->
     let (_, grs) : Obls_.State.t * _ = save ~pm:Obls_.State.empty ~proof ~opaque ~idopt in
     grs

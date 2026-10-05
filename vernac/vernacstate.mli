@@ -75,6 +75,15 @@ type t =
 val freeze_full_state : unit -> t
 val unfreeze_full_state : t -> unit
 
+(** [is_portable st] is [true] when every proof open in [st] is
+    {!Declare.Proof.is_portable} and every Program state in [st] is
+    {!Declare.OblState.is_empty}. This covers the declaration hooks,
+    proof endings and pending obligations held in [st], which do not
+    survive marshalling, and nothing else: futures in the opaque
+    table, for instance, are lost as well but fail loudly when
+    forced, and kernel caches are recomputed. *)
+val is_portable : t -> bool
+
 (** STM-specific state handling *)
 module Stm : sig
 
