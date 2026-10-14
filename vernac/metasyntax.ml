@@ -811,7 +811,10 @@ let pr_arg_level from (lev,typ) =
   | LevelLe n -> spc () ++ str "at level " ++ int n
   | LevelLt n -> spc () ++ str "at level below " ++ int n
   | LevelSome -> mt () in
-  Ppvernac.pr_set_entry_type (fun _ -> (*TO CHECK*) mt()) typ ++ pplev lev
+  Ppvernac.pr_set_entry_type (fun _ -> (*TO CHECK*) mt()) typ ++
+  (match typ with
+   | ETPattern (_,Some _) -> mt ()
+   | _ -> pplev lev)
 
 let pr_level ntn ({notation_entry = from; notation_level = fromlevel}, args) typs =
   (match from with InConstrEntry -> mt () | InCustomEntry s -> str "in " ++ str s ++ spc()) ++
@@ -834,6 +837,19 @@ let error_parsing_incompatible_level ntn ntn' oldprec oldtyps prec typs =
     pr_level ntn oldprec oldtyps ++
     spc() ++ str "while it is now required to be" ++ spc() ++
     pr_level ntn prec typs ++ str ".")
+
+let warn_incompatible_level =
+  CWarnings.create ~name:"notation-incompatible-level"
+    ~category:CWarnings.CoreCategories.parsing
+    (fun (ntn,oldprec,oldtyps,prec,typs,no_parsing_rule) ->
+      str "Notation " ++ pr_notation ntn ++ str " is already defined" ++ spc() ++
+      pr_level ntn oldprec oldtyps ++
+      spc() ++ str "while this declaration is" ++ spc() ++
+      pr_level ntn prec typs ++ str "." ++ spc() ++
+      if no_parsing_rule then
+        strbrk "It adds no parsing rule, so only printing with it is affected."
+      else
+        strbrk "The level recorded for printing is unchanged.")
 
 let warn_incompatible_format =
   CWarnings.create ~name:"notation-incompatible-format" ~category:CWarnings.CoreCategories.parsing
@@ -940,9 +956,12 @@ let cache_one_syntax_extension (ntn,synext) =
         with Not_found -> None
       in
       let oldtyps = Notgram_ops.non_terminals_of_notation ntn in
-      if not (level_eq prec oldprec && List.for_all2 Extend.constr_entry_key_eq synext.synext_nottyps oldtyps) &&
-         (oldparsing <> None || synext.synext_notgram = None) then
-        error_incompatible_level ntn oldprec oldtyps prec synext.synext_nottyps;
+      if not (level_eq prec oldprec && List.for_all2 Extend.constr_entry_key_eq synext.synext_nottyps oldtyps) then begin
+        if oldparsing = None || synext.synext_notgram = None then
+          warn_incompatible_level (ntn,oldprec,oldtyps,prec,synext.synext_nottyps,synext.synext_notgram = None)
+        else
+          error_incompatible_level ntn oldprec oldtyps prec synext.synext_nottyps
+      end;
       oldparsing
     with Not_found ->
       check_prefix_incompatible_level ntn prec synext.synext_nottyps;
